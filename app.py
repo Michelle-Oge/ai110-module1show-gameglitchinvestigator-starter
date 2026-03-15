@@ -7,7 +7,8 @@ def get_range_for_difficulty(difficulty: str):
     if difficulty == "Normal":
         return 1, 100
     if difficulty == "Hard":
-        return 1, 50
+        # FIX: Hard range was 1-50 (smaller than Normal's 1-100), corrected to 1-200
+        return 1, 200
     return 1, 100
 
 
@@ -35,16 +36,19 @@ def check_guess(guess, secret):
 
     try:
         if guess > secret:
-            return "Too High", "📈 Go HIGHER!"
+            # FIX: swapped messages — when guess is too high, player should go LOWER
+            return "Too High", "📉 Go LOWER!"
         else:
-            return "Too Low", "📉 Go LOWER!"
+            # FIX: swapped messages — when guess is too low, player should go HIGHER
+            return "Too Low", "📈 Go HIGHER!"
     except TypeError:
         g = str(guess)
         if g == secret:
             return "Win", "🎉 Correct!"
         if g > secret:
-            return "Too High", "📈 Go HIGHER!"
-        return "Too Low", "📉 Go LOWER!"
+            # FIX: same swap applied to the string-comparison fallback path
+            return "Too High", "📉 Go LOWER!"
+        return "Too Low", "📈 Go HIGHER!"
 
 
 def update_score(current_score: int, outcome: str, attempt_number: int):
@@ -93,7 +97,8 @@ if "secret" not in st.session_state:
     st.session_state.secret = random.randint(low, high)
 
 if "attempts" not in st.session_state:
-    st.session_state.attempts = 1
+    # FIX: changed initial attempts from 1 to 0 so the first guess counts as attempt 1
+    st.session_state.attempts = 0
 
 if "score" not in st.session_state:
     st.session_state.score = 0
@@ -104,10 +109,16 @@ if "status" not in st.session_state:
 if "history" not in st.session_state:
     st.session_state.history = []
 
+# FIX: track which difficulty the secret was generated for so we can detect changes
+if "secret_difficulty" not in st.session_state:
+    st.session_state.secret_difficulty = difficulty
+
 st.subheader("Make a guess")
 
+# FIX: use low/high variables instead of hardcoded "1 and 100" so the hint
+# reflects the actual range for the selected difficulty
 st.info(
-    f"Guess a number between 1 and 100. "
+    f"Guess a number between {low} and {high}. "
     f"Attempts left: {attempt_limit - st.session_state.attempts}"
 )
 
@@ -133,8 +144,23 @@ with col3:
 
 if new_game:
     st.session_state.attempts = 0
-    st.session_state.secret = random.randint(1, 100)
+    # FIX: use low/high from current difficulty instead of hardcoded 1-100
+    st.session_state.secret = random.randint(low, high)
+    # FIX: reset status to "playing" so the game is no longer blocked after a win/loss
+    st.session_state.status = "playing"
+    st.session_state.history = []
+    # FIX: update secret_difficulty to the current difficulty
+    st.session_state.secret_difficulty = difficulty
     st.success("New game started.")
+    st.rerun()
+
+# FIX: if the difficulty changed mid-session, regenerate the secret for the new range
+if st.session_state.secret_difficulty != difficulty:
+    st.session_state.secret = random.randint(low, high)
+    st.session_state.attempts = 0
+    st.session_state.status = "playing"
+    st.session_state.history = []
+    st.session_state.secret_difficulty = difficulty
     st.rerun()
 
 if st.session_state.status != "playing":
@@ -153,39 +179,44 @@ if submit:
         st.session_state.history.append(raw_guess)
         st.error(err)
     else:
-        st.session_state.history.append(guess_int)
-
-        if st.session_state.attempts % 2 == 0:
-            secret = str(st.session_state.secret)
+        # FIX: reject guesses outside the valid range for the current difficulty
+        if guess_int < low or guess_int > high:
+            st.session_state.attempts -= 1  # don't count the out-of-range attempt
+            st.error(f"Please enter a number between {low} and {high}.")
         else:
-            secret = st.session_state.secret
+            st.session_state.history.append(guess_int)
 
-        outcome, message = check_guess(guess_int, secret)
+            if st.session_state.attempts % 2 == 0:
+                secret = str(st.session_state.secret)
+            else:
+                secret = st.session_state.secret
 
-        if show_hint:
-            st.warning(message)
+            outcome, message = check_guess(guess_int, secret)
 
-        st.session_state.score = update_score(
-            current_score=st.session_state.score,
-            outcome=outcome,
-            attempt_number=st.session_state.attempts,
-        )
+            if show_hint:
+                st.warning(message)
 
-        if outcome == "Win":
-            st.balloons()
-            st.session_state.status = "won"
-            st.success(
-                f"You won! The secret was {st.session_state.secret}. "
-                f"Final score: {st.session_state.score}"
+            st.session_state.score = update_score(
+                current_score=st.session_state.score,
+                outcome=outcome,
+                attempt_number=st.session_state.attempts,
             )
-        else:
-            if st.session_state.attempts >= attempt_limit:
-                st.session_state.status = "lost"
-                st.error(
-                    f"Out of attempts! "
-                    f"The secret was {st.session_state.secret}. "
-                    f"Score: {st.session_state.score}"
+
+            if outcome == "Win":
+                st.balloons()
+                st.session_state.status = "won"
+                st.success(
+                    f"You won! The secret was {st.session_state.secret}. "
+                    f"Final score: {st.session_state.score}"
                 )
+            else:
+                if st.session_state.attempts >= attempt_limit:
+                    st.session_state.status = "lost"
+                    st.error(
+                        f"Out of attempts! "
+                        f"The secret was {st.session_state.secret}. "
+                        f"Score: {st.session_state.score}"
+                    )
 
 st.divider()
 st.caption("Built by an AI that claims this code is production-ready.")
